@@ -22,7 +22,7 @@ export default class CreateTransactions1604696542454
           },
           {
             name: 'value',
-            type: 'bigint',
+            type: 'integer',
           },
           {
             name: 'type',
