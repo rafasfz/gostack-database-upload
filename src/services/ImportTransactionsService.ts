@@ -1,9 +1,13 @@
 import csvParse from 'csv-parse';
 import fs from 'fs';
 import path from 'path';
+import { getRepository, getCustomRepository } from 'typeorm';
+
+import AppError from '../errors/AppError';
 
 import Transaction from '../models/Transaction';
-import CreateTransactionService from './CreateTransactionService';
+import Category from '../models/Category';
+import TransactionsRepository from '../repositories/TransactionsRepository';
 
 class ImportTransactionsService {
   async execute(filename: string): Promise<Transaction[]> {
@@ -21,15 +25,48 @@ class ImportTransactionsService {
     const transactions: Transaction[] = [];
 
     parseCSV.on('data', async line => {
-      const createTransaction = new CreateTransactionService();
+      const [title, type, valueString, category] = line;
+      const value = Number(valueString);
 
-      const transaction = await createTransaction.execute({
-        title: line[0],
-        type: line[1],
-        value: Number(line[2]),
-        category: line[3],
+      const transactionsRepository = getCustomRepository(
+        TransactionsRepository,
+      );
+      const categoriesRepository = getRepository(Category);
+
+      const balance = await transactionsRepository.getBalance();
+      const totalBalance = balance.total;
+
+      if (type === 'outcome' && value > totalBalance) {
+        throw new AppError('Can not outcome more than total balance.');
+      }
+
+      const checkCategoryExist = await categoriesRepository.findOne({
+        where: { title: category },
       });
+
+      if (!checkCategoryExist) {
+        const newCategory = categoriesRepository.create({
+          title: category,
+        });
+
+        await categoriesRepository.save(newCategory);
+      }
+
+      const transactionCategory = (await categoriesRepository.findOne({
+        where: { title: category },
+      })) as Category;
+
+      const transaction = transactionsRepository.create({
+        title,
+        value,
+        type,
+        category_id: transactionCategory,
+      });
+
+      await transactionsRepository.save(transaction);
+
       transactions.push(transaction);
+      console.log(transaction);
     });
 
     await new Promise(resolve => parseCSV.on('end', resolve));
